@@ -2,109 +2,160 @@ import geopandas as gpd
 import pandas as pd
 import folium
 from folium.plugins import Search
-from tqdm import tqdm
 
-# ✅ 路径设置
+# ✅ 路径配置
 geojson_path = "/Users/zhengzhang/Desktop/Adelaide city/Suburbs_geojson/Suburbs_GDA2020.geojson"
 csv_path = "/Users/zhengzhang/Desktop/Adelaide city/Shipping_policy/Shipping_Policy_Based_on_New_Ranges.csv"
+output_path = "/Users/zhengzhang/Desktop/adelaide_map_with_color_edit.html"
 
-# ✅ 读取数据
+# ✅ 读取和清洗数据
 gdf = gpd.read_file(geojson_path)
-pricing_df = pd.read_csv(csv_path)
-
-# ✅ 标准化字段
-gdf = gdf[["postcode", "suburb", "geometry"]]
+df = pd.read_csv(csv_path)
+gdf = gdf[["suburb", "postcode", "geometry"]]
 gdf["postcode"] = gdf["postcode"].astype(str)
-pricing_df["postcode"] = pricing_df["postcode"].astype(str)
+df["postcode"] = df["postcode"].astype(str)
 
-# ✅ 匹配距离范围
-def assign_distance_range(km):
-    try:
-        km = float(km)
-        if km <= 5:
-            return "≤ 5 km"
-        elif km <= 10:
-            return "> 5 km 且 ≤ 10 km"
-        elif km <= 15:
-            return "> 10 km 且 ≤ 15 km"
-        elif km <= 20:
-            return "> 15 km 且 ≤ 20 km"
-        else:
-            return "> 20 km"
-    except:
-        return "Unknown"
+merged = gdf.merge(df, on=["suburb", "postcode"], how="left")
+merged["search_key"] = merged["suburb"] + " " + merged["postcode"]
 
-pricing_df["Distance_Range"] = pricing_df["Distance_to_32WrightCt_km"].apply(assign_distance_range)
-
-# ✅ 配送费用策略
-pricing_df["Fee_If_Under"] = pricing_df["Distance_Range"].map({
-    "≤ 5 km": "$6",
-    "> 5 km 且 ≤ 10 km": "$6",
-    "> 10 km 且 ≤ 15 km": "$8",
-    "> 15 km 且 ≤ 20 km": "$10",
-    "> 20 km": "$12"
-}).fillna("N/A")
-
-# ✅ 合并
-merged_gdf = gdf.merge(pricing_df, on=["postcode", "suburb"], how="left")
-
-# ✅ 加载进度条（模拟）
-for _ in tqdm(range(100), desc="📍 构建地图数据"):
-    pass
-
-# ✅ 填色映射
-color_map = {
-    "≤ 5 km": "#2ca02c",                  # green
-    "> 5 km 且 ≤ 10 km": "#ffcc00",       # yellow
-    "> 10 km 且 ≤ 15 km": "#ff7f0e",      # orange
-    "> 15 km 且 ≤ 20 km": "#d62728",      # red
-    "> 20 km": "#9467bd"                  # purple
+zone_color = {
+    "专区 1": "#1f77b4",
+    "专区 2": "#ff7f0e",
+    "专区 3": "#2ca02c",
+    "专区 4": "#d62728",
+    "专区 5": "#9467bd"
 }
-merged_gdf["fill_color"] = merged_gdf["Distance_Range"].map(color_map).fillna("#dddddd")
+merged["fill_color"] = merged["专区"].map(zone_color).fillna("#dddddd")
 
-# ✅ 搜索字段（suburb + postcode）
-merged_gdf["search_key"] = (merged_gdf["suburb"] + " " + merged_gdf["postcode"]).astype(str)
+for col in merged.columns:
+    if col != "geometry":
+        merged[col] = merged[col].astype(str)
 
-# ✅ 确保所有非几何列为字符串，避免 JSON 问题
-non_geometry_cols = [col for col in merged_gdf.columns if col != "geometry"]
-merged_gdf[non_geometry_cols] = merged_gdf[non_geometry_cols].astype(str)
-
-# ✅ 创建地图
+# ✅ 初始化地图
 m = folium.Map(location=[-34.93, 138.6], zoom_start=12)
 
-# ✅ GeoJSON 图层
-geojson_layer = folium.GeoJson(
-    merged_gdf,
-    name="Adelaide Shipping Zones",
+# ✅ 添加 GeoJSON 图层并保存为变量
+geojson = folium.GeoJson(
+    merged,
+    name="Suburbs",
     style_function=lambda feature: {
-        'fillColor': feature['properties']['fill_color'],
-        'color': 'black',
-        'weight': 1.2,
+        'fillColor': feature["properties"]["fill_color"],
+        'color': "black",
+        'weight': 1.5,
         'fillOpacity': 0.6
     },
-    highlight_function=lambda feature: {
-        'fillColor': '#ffff00',
-        'color': 'blue',
-        'weight': 2,
-        'fillOpacity': 0.9
-    },
     tooltip=folium.GeoJsonTooltip(
-        fields=["postcode", "suburb", "Distance_to_32WrightCt_km", "Distance_Range", "Fee_If_Under"],
-        aliases=["Postcode", "Suburb", "Distance (km)", "Range", "Delivery Fee"],
-        sticky=True,
-        opacity=0.9
+        fields=["suburb", "postcode", "专区"],
+        aliases=["Suburb", "Postcode", "Zone"],
+        sticky=True
     )
-).add_to(m)
+)
+geojson.add_to(m)
 
-# ✅ 搜索插件（支持 postcode + suburb）
+# ✅ 添加搜索
 Search(
-    layer=geojson_layer,
+    layer=geojson,
     search_label="search_key",
-    placeholder="Search by suburb or postcode",
+    placeholder="Search suburb/postcode",
     collapsed=False,
 ).add_to(m)
 
-# ✅ 输出地图
-output_path = "/Users/zhengzhang/Desktop/adelaide_shipping_colored_map_with_search.html"
+# ✅ JS 功能与 CSS 修复（绑定图层）
+palette_js_css = f"""
+<style>
+#colorPalette {{
+    position: absolute;
+    top: 140px; /* ⬅️ 避免覆盖 search bar */
+    left: 10px;
+    z-index: 9999;
+    background: white;
+    padding: 8px;
+    border: 1px solid #999;
+    border-radius: 8px;
+    box-shadow: 2px 2px 6px rgba(0,0,0,0.3);
+    font-size: 14px;
+    width: 160px;
+}}
+.color-button {{
+    width: 25px;
+    height: 25px;
+    border-radius: 50%;
+    border: 2px solid gray;
+    margin: 3px;
+    display: inline-block;
+    cursor: pointer;
+}}
+.color-button.active {{
+    border: 3px solid black;
+}}
+#saveColorsBtn {{
+    display: block;
+    margin-top: 10px;
+    background: #007bff;
+    color: white;
+    padding: 4px 8px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}}
+</style>
+
+<div id="colorPalette">
+  <strong>🎨 Choose Color</strong><br>
+  <div id="colorButtons"></div>
+  <button id="saveColorsBtn">💾 Save</button>
+</div>
+
+<script>
+const colorOptions = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"];
+let selectedColor = colorOptions[0];
+let colorMap = JSON.parse(localStorage.getItem("suburbColorMap") || "{{}}");
+
+function createColorButtons() {{
+    const container = document.getElementById("colorButtons");
+    colorOptions.forEach(color => {{
+        const btn = document.createElement("div");
+        btn.className = "color-button";
+        btn.style.backgroundColor = color;
+        btn.onclick = () => {{
+            selectedColor = color;
+            document.querySelectorAll(".color-button").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+        }};
+        container.appendChild(btn);
+    }});
+    container.firstChild.classList.add("active");
+}}
+
+function applyColoring(layer) {{
+    const features = layer._layers;
+    for (let key in features) {{
+        const shape = features[key];
+        const props = shape.feature.properties;
+        const id = props.suburb + "_" + props.postcode;
+        if (colorMap[id]) {{
+            shape.setStyle({{ fillColor: colorMap[id] }});
+        }}
+        shape.on("click", function() {{
+            shape.setStyle({{ fillColor: selectedColor }});
+            colorMap[id] = selectedColor;
+        }});
+    }}
+}}
+
+document.addEventListener("DOMContentLoaded", () => {{
+    createColorButtons();
+    applyColoring({geojson.get_name()});
+    document.getElementById("saveColorsBtn").onclick = () => {{
+        localStorage.setItem("suburbColorMap", JSON.stringify(colorMap));
+        alert("✅ Colors saved to localStorage!");
+    }};
+}});
+</script>
+"""
+
+m.get_root().html.add_child(folium.Element(palette_js_css))
+
+# ✅ 保存
 m.save(output_path)
-print(f"✅ 地图已生成并保存至: {output_path}")
+print(f"✅ 地图已保存：{output_path}")
