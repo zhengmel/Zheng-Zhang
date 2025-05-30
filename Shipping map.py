@@ -80,7 +80,7 @@ js_css = f"""
     border-radius: 8px;
     box-shadow: 2px 2px 6px rgba(0,0,0,0.3);
     font-size: 14px;
-    width: 180px;
+    width: 200px;
 }}
 .color-button {{
     width: 25px;
@@ -94,9 +94,9 @@ js_css = f"""
 .color-button.active {{
     border: 3px solid black;
 }}
-#saveColorsBtn {{
+#saveColorsBtn, #undoColorBtn {{
     display: block;
-    margin-top: 10px;
+    margin-top: 8px;
     background: #007bff;
     color: white;
     padding: 4px 8px;
@@ -104,12 +104,16 @@ js_css = f"""
     border-radius: 4px;
     cursor: pointer;
 }}
+#undoColorBtn {{
+    background: #dc3545;
+}}
 </style>
 
 <div id="colorPalette">
   <strong>🎨 选择专区颜色</strong><br>
   <div id="colorButtons" style="display: flex; flex-direction: column; gap: 5px;"></div>
   <button id="saveColorsBtn">💾 保存</button>
+  <button id="undoColorBtn">🧹 撤回</button>
 </div>
 
 <script>
@@ -123,6 +127,7 @@ const colorToZone = {{
 }};
 let selectedColor = colorOptions[0];
 let colorMap = JSON.parse(localStorage.getItem("suburbColorMap") || "{{}}");
+let undoStack = [];
 
 function createColorButtons() {{
     const container = document.getElementById("colorButtons");
@@ -143,7 +148,7 @@ function createColorButtons() {{
         }};
 
         const label = document.createElement("span");
-        label.textContent = colorToZone[color];  // ✅ 仅显示“专区 X”
+        label.textContent = colorToZone[color];
 
         wrapper.appendChild(btn);
         wrapper.appendChild(label);
@@ -163,6 +168,8 @@ function applyColoring(layer) {{
         }}
 
         shape.on("click", function() {{
+            undoStack.push({{ id: id, shape: shape }});  // 👈 保存撤回目标
+
             shape.setStyle({{ fillColor: selectedColor }});
             colorMap[id] = selectedColor;
             const zone = colorToZone[selectedColor] || "未定义";
@@ -182,14 +189,25 @@ function applyColoring(layer) {{
 document.addEventListener("DOMContentLoaded", () => {{
     createColorButtons();
     applyColoring({geojson.get_name()});
+
     document.getElementById("saveColorsBtn").onclick = () => {{
         localStorage.setItem("suburbColorMap", JSON.stringify(colorMap));
         alert("✅ 区域颜色已保存！");
     }};
+
+    document.getElementById("undoColorBtn").onclick = () => {{
+        if (undoStack.length > 0) {{
+            const last = undoStack.pop();
+            last.shape.setStyle({{ fillColor: "#dddddd" }});  // 👈 重置为灰色
+            delete colorMap[last.id];                         // 👈 从配色记录中移除
+            last.shape.unbindTooltip();
+        }} else {{
+            alert("⚠️ 没有可以撤回的操作");
+        }}
+    }};
 }});
 </script>
 """
-
 
 m.get_root().html.add_child(Element(js_css))
 m.save(output_path)
