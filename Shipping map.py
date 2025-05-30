@@ -94,7 +94,7 @@ js_css = f"""
 .color-button.active {{
     border: 3px solid black;
 }}
-#saveColorsBtn, #undoColorBtn, #exportBtn {{
+#saveColorsBtn, #exportBtn, #cancelColorBtn {{
     display: block;
     margin-top: 8px;
     background: #007bff;
@@ -105,19 +105,19 @@ js_css = f"""
     cursor: pointer;
     font-size: 13px;
 }}
-#undoColorBtn {{
-    background: #dc3545;
-}}
 #exportBtn {{
     background: #28a745;
+}}
+#cancelColorBtn {{
+    background: #6c757d;
 }}
 </style>
 
 <div id="colorPalette">
   <strong>🎨 选择专区颜色</strong><br>
   <div id="colorButtons" style="display: flex; flex-direction: column; gap: 5px;"></div>
+  <button id="cancelColorBtn">❌ 取消</button>
   <button id="saveColorsBtn">💾 保存</button>
-  <button id="undoColorBtn">🧹 撤回</button>
   <button id="exportBtn">📤 导出 CSV</button>
 </div>
 
@@ -130,9 +130,8 @@ const colorToZone = {{
     "#d62728": "专区 4",
     "#9467bd": "专区 5"
 }};
-let selectedColor = colorOptions[0];
+let selectedColor = null;
 let colorMap = JSON.parse(localStorage.getItem("suburbColorMap") || "{{}}");
-let undoStack = [];
 
 function createColorButtons() {{
     const container = document.getElementById("colorButtons");
@@ -147,9 +146,14 @@ function createColorButtons() {{
         btn.className = "color-button";
         btn.style.backgroundColor = color;
         btn.onclick = () => {{
-            selectedColor = color;
-            document.querySelectorAll(".color-button").forEach(b => b.classList.remove("active"));
-            btn.classList.add("active");
+            if (selectedColor === color) {{
+                selectedColor = null;
+                btn.classList.remove("active");
+            }} else {{
+                selectedColor = color;
+                document.querySelectorAll(".color-button").forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+            }}
         }};
 
         const label = document.createElement("span");
@@ -159,7 +163,6 @@ function createColorButtons() {{
         wrapper.appendChild(label);
         container.appendChild(wrapper);
     }});
-    container.querySelector(".color-button").classList.add("active");
 }}
 
 function applyColoring(layer) {{
@@ -173,7 +176,17 @@ function applyColoring(layer) {{
         }}
 
         shape.on("click", function() {{
-            undoStack.push({{ id: id, shape: shape }});
+            if (!selectedColor) {{
+                if (colorMap[id]) {{
+                    shape.setStyle({{ fillColor: "#dddddd" }});
+                    delete colorMap[id];
+                    shape.unbindTooltip();
+                }} else {{
+                    alert("⚠️ 请先选择颜色后再进行着色");
+                }}
+                return;
+            }}
+
             shape.setStyle({{ fillColor: selectedColor }});
             colorMap[id] = selectedColor;
 
@@ -238,19 +251,13 @@ document.addEventListener("DOMContentLoaded", () => {{
         alert("✅ 区域颜色已保存！");
     }};
 
-    document.getElementById("undoColorBtn").onclick = () => {{
-        if (undoStack.length > 0) {{
-            const last = undoStack.pop();
-            last.shape.setStyle({{ fillColor: "#dddddd" }});
-            delete colorMap[last.id];
-            last.shape.unbindTooltip();
-        }} else {{
-            alert("⚠️ 没有可以撤回的操作");
-        }}
-    }};
-
     document.getElementById("exportBtn").onclick = () => {{
         exportToCSV();
+    }};
+
+    document.getElementById("cancelColorBtn").onclick = () => {{
+        selectedColor = null;
+        document.querySelectorAll(".color-button").forEach(b => b.classList.remove("active"));
     }};
 }});
 </script>
