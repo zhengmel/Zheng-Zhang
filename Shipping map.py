@@ -2,41 +2,41 @@ import geopandas as gpd
 import pandas as pd
 import folium
 from folium.plugins import Search
+from branca.element import Element, MacroElement
+from jinja2 import Template
 
-# ✅ 本地路径
+# ✅ 文件路径
 geojson_path = "/Users/zhengzhang/Desktop/Adelaide city/Suburbs_geojson/Suburbs_GDA2020.geojson"
 csv_path = "/Users/zhengzhang/Desktop/Adelaide city/Shipping_policy/Shipping_Policy_Based_on_New_Ranges.csv"
 output_path = "/Users/zhengzhang/Desktop/adelaide_map_with_color_edit.html"
 
-# ✅ 读取数据
+
+# ✅ 数据读取与合并
 gdf = gpd.read_file(geojson_path)
 df = pd.read_csv(csv_path)
-
-# ✅ 清洗并合并
-gdf = gdf[["suburb", "postcode", "geometry"]]
 gdf["postcode"] = gdf["postcode"].astype(str)
 df["postcode"] = df["postcode"].astype(str)
+gdf = gdf[["suburb", "postcode", "geometry"]]
 merged = gdf.merge(df, on=["suburb", "postcode"], how="left")
 merged["search_key"] = merged["suburb"] + " " + merged["postcode"]
+merged["fill_color"] = "#dddddd"  # 初始色
 
-# ✅ 初始颜色：全部默认灰色
-merged["fill_color"] = "#dddddd"
+# 所有字段转为字符串
 for col in merged.columns:
     if col != "geometry":
         merged[col] = merged[col].astype(str)
 
-# ✅ 创建地图
+# ✅ 初始化地图
 m = folium.Map(location=[-34.93, 138.6], zoom_start=12)
 
-# ✅ 添加 GeoJSON 图层
 geojson = folium.GeoJson(
     merged,
     name="Suburbs",
     style_function=lambda feature: {
-        'fillColor': feature['properties']['fill_color'],
-        'color': "black",
-        'weight': 1.5,
-        'fillOpacity': 0.6
+        "fillColor": feature["properties"]["fill_color"],
+        "color": "black",
+        "weight": 1.5,
+        "fillOpacity": 0.6,
     },
     tooltip=folium.GeoJsonTooltip(
         fields=["suburb", "postcode", "Distance_to_32WrightCt_km"],
@@ -46,7 +46,7 @@ geojson = folium.GeoJson(
 )
 geojson.add_to(m)
 
-# ✅ 搜索栏
+# ✅ 添加搜索栏
 Search(
     layer=geojson,
     search_label="search_key",
@@ -54,7 +54,19 @@ Search(
     collapsed=False,
 ).add_to(m)
 
-# ✅ 注入 JS + 样式
+# ✅ 绑定 geojsonLayer 到 JS 全局
+class BindGeoJson(MacroElement):
+    def __init__(self, layer_name):
+        super().__init__()
+        self._template = Template(f"""
+            <script>
+                window.geojsonLayer = {{% raw %}}{layer_name}{{% endraw %}};
+            </script>
+        """)
+
+m.get_root().add_child(BindGeoJson(geojson.get_name()))
+
+# ✅ 注入调色板 + JS 交互
 js_css = f"""
 <style>
 #colorPalette {{
@@ -75,7 +87,7 @@ js_css = f"""
     height: 25px;
     border-radius: 50%;
     border: 2px solid gray;
-    margin: 3px;
+    margin: 2px 0;
     display: inline-block;
     cursor: pointer;
 }}
@@ -95,19 +107,19 @@ js_css = f"""
 </style>
 
 <div id="colorPalette">
-  <strong>🎨 Choose Color</strong><br>
-  <div id="colorButtons"></div>
-  <button id="saveColorsBtn">💾 Save</button>
+  <strong>🎨 选择专区颜色</strong><br>
+  <div id="colorButtons" style="display: flex; flex-direction: column; gap: 5px;"></div>
+  <button id="saveColorsBtn">💾 保存</button>
 </div>
 
 <script>
 const colorOptions = ["#2ca02c", "#ffcc00", "#ff7f0e", "#d62728", "#9467bd"];
 const colorToZone = {{
-    "#2ca02c": "专区 1",  // green
-    "#ffcc00": "专区 2",  // yellow
-    "#ff7f0e": "专区 3",  // orange
-    "#d62728": "专区 4",  // red
-    "#9467bd": "专区 5"   // purple
+    "#2ca02c": "专区 1",
+    "#ffcc00": "专区 2",
+    "#ff7f0e": "专区 3",
+    "#d62728": "专区 4",
+    "#9467bd": "专区 5"
 }};
 let selectedColor = colorOptions[0];
 let colorMap = JSON.parse(localStorage.getItem("suburbColorMap") || "{{}}");
@@ -116,6 +128,11 @@ function createColorButtons() {{
     const container = document.getElementById("colorButtons");
     container.innerHTML = "";
     colorOptions.forEach(color => {{
+        const wrapper = document.createElement("div");
+        wrapper.style.display = "flex";
+        wrapper.style.alignItems = "center";
+        wrapper.style.gap = "8px";
+
         const btn = document.createElement("div");
         btn.className = "color-button";
         btn.style.backgroundColor = color;
@@ -124,9 +141,15 @@ function createColorButtons() {{
             document.querySelectorAll(".color-button").forEach(b => b.classList.remove("active"));
             btn.classList.add("active");
         }};
-        container.appendChild(btn);
+
+        const label = document.createElement("span");
+        label.textContent = colorToZone[color];  // ✅ 仅显示“专区 X”
+
+        wrapper.appendChild(btn);
+        wrapper.appendChild(label);
+        container.appendChild(wrapper);
     }});
-    container.firstChild.classList.add("active");
+    container.querySelector(".color-button").classList.add("active");
 }}
 
 function applyColoring(layer) {{
@@ -161,15 +184,14 @@ document.addEventListener("DOMContentLoaded", () => {{
     applyColoring({geojson.get_name()});
     document.getElementById("saveColorsBtn").onclick = () => {{
         localStorage.setItem("suburbColorMap", JSON.stringify(colorMap));
-        alert("✅ Coloring saved locally!");
+        alert("✅ 区域颜色已保存！");
     }};
 }});
 </script>
 """
 
-# ✅ 添加 JS + CSS 到地图
-m.get_root().html.add_child(folium.Element(js_css))
 
-# ✅ 保存 HTML 文件
+m.get_root().html.add_child(Element(js_css))
 m.save(output_path)
-print(f"✅ 地图已生成：{output_path}")
+
+print(f"✅ 地图已保存：{output_path}")
