@@ -193,19 +193,35 @@ function applyColoring(layer) {{
 function exportToCSV() {{
     const rows = [["suburb", "postcode", "zone"]];
     const layer = {geojson.get_name()};
+    const dataRows = [];
+
+    const zoneOrder = {{
+        "专区 1": 1,
+        "专区 2": 2,
+        "专区 3": 3,
+        "专区 4": 4,
+        "专区 5": 5
+    }};
+
     for (let key in layer._layers) {{
         const shape = layer._layers[key];
         const props = shape.feature.properties;
         const id = props.suburb + "_" + props.postcode;
         if (colorMap[id]) {{
             const zone = colorToZone[colorMap[id]] || "未定义";
-            rows.push([props.suburb, props.postcode, zone]);
+            dataRows.push([props.suburb, props.postcode, zone]);
         }}
     }}
 
-    let csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.join(",")).join("\\n");
-    let encodedUri = encodeURI(csvContent);
-    let link = document.createElement("a");
+    dataRows.sort((a, b) => {{
+        const aOrder = zoneOrder[a[2]] || 99;
+        const bOrder = zoneOrder[b[2]] || 99;
+        return aOrder - bOrder;
+    }});
+
+    const csvContent = "data:text/csv;charset=utf-8," + [rows[0], ...dataRows].map(e => e.join(",")).join("\\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
     link.setAttribute("download", "colored_suburbs.csv");
     document.body.appendChild(link);
