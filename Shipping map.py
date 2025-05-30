@@ -80,7 +80,7 @@ js_css = f"""
     border-radius: 8px;
     box-shadow: 2px 2px 6px rgba(0,0,0,0.3);
     font-size: 14px;
-    width: 200px;
+    width: 220px;
 }}
 .color-button {{
     width: 25px;
@@ -94,7 +94,7 @@ js_css = f"""
 .color-button.active {{
     border: 3px solid black;
 }}
-#saveColorsBtn, #undoColorBtn {{
+#saveColorsBtn, #undoColorBtn, #exportBtn {{
     display: block;
     margin-top: 8px;
     background: #007bff;
@@ -103,9 +103,13 @@ js_css = f"""
     border: none;
     border-radius: 4px;
     cursor: pointer;
+    font-size: 13px;
 }}
 #undoColorBtn {{
     background: #dc3545;
+}}
+#exportBtn {{
+    background: #28a745;
 }}
 </style>
 
@@ -114,6 +118,7 @@ js_css = f"""
   <div id="colorButtons" style="display: flex; flex-direction: column; gap: 5px;"></div>
   <button id="saveColorsBtn">💾 保存</button>
   <button id="undoColorBtn">🧹 撤回</button>
+  <button id="exportBtn">📤 导出 CSV</button>
 </div>
 
 <script>
@@ -168,12 +173,11 @@ function applyColoring(layer) {{
         }}
 
         shape.on("click", function() {{
-            undoStack.push({{ id: id, shape: shape }});  // 👈 保存撤回目标
-
+            undoStack.push({{ id: id, shape: shape }});
             shape.setStyle({{ fillColor: selectedColor }});
             colorMap[id] = selectedColor;
-            const zone = colorToZone[selectedColor] || "未定义";
 
+            const zone = colorToZone[selectedColor] || "未定义";
             const html = `
               <b>Suburb:</b> ${{props.suburb}}<br>
               <b>Postcode:</b> ${{props.postcode}}<br>
@@ -184,6 +188,29 @@ function applyColoring(layer) {{
             shape.bindTooltip(html, {{sticky: true}}).openTooltip();
         }});
     }}
+}}
+
+function exportToCSV() {{
+    const rows = [["suburb", "postcode", "zone"]];
+    const layer = {geojson.get_name()};
+    for (let key in layer._layers) {{
+        const shape = layer._layers[key];
+        const props = shape.feature.properties;
+        const id = props.suburb + "_" + props.postcode;
+        if (colorMap[id]) {{
+            const zone = colorToZone[colorMap[id]] || "未定义";
+            rows.push([props.suburb, props.postcode, zone]);
+        }}
+    }}
+
+    let csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.join(",")).join("\\n");
+    let encodedUri = encodeURI(csvContent);
+    let link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "colored_suburbs.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 }}
 
 document.addEventListener("DOMContentLoaded", () => {{
@@ -198,12 +225,16 @@ document.addEventListener("DOMContentLoaded", () => {{
     document.getElementById("undoColorBtn").onclick = () => {{
         if (undoStack.length > 0) {{
             const last = undoStack.pop();
-            last.shape.setStyle({{ fillColor: "#dddddd" }});  // 👈 重置为灰色
-            delete colorMap[last.id];                         // 👈 从配色记录中移除
+            last.shape.setStyle({{ fillColor: "#dddddd" }});
+            delete colorMap[last.id];
             last.shape.unbindTooltip();
         }} else {{
             alert("⚠️ 没有可以撤回的操作");
         }}
+    }};
+
+    document.getElementById("exportBtn").onclick = () => {{
+        exportToCSV();
     }};
 }});
 </script>
